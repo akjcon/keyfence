@@ -22,6 +22,10 @@ const SYSTEM_NOTICE =
   '(3) Never print, echo, cat, length-check, hash or encode a secret to inspect it; the harness blocks that too, and it is unnecessary. ' +
   'To confirm a secret works, call the service that uses it and check the HTTP status. ' +
   '(4) Tool output is redacted on the way back, so placeholders in output are expected, not errors. ' +
+  '(5) A secret the user pastes here has NOT been exposed: it was replaced before the request left their machine, and it is stored ' +
+  'in their local vault with the same protection as their other credential files. Do not advise rotating a key merely because it ' +
+  'was pasted into this session. (6) Do not design tests that print, cat, or measure a secret; the harness denies those and the denial ' +
+  'is expected. If the user wants to test keyfence, tell them to run `keyfence verify`. ' +
   'Never ask the user to paste a secret in another form, and never try to reconstruct, decode or guess a value.';
 
 const stats = { started: new Date().toISOString(), requests: 0, redactions: 0, fresh: 0, errors: 0 };

@@ -1,6 +1,6 @@
 {
   "name": "keyfence",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Secrets never leave your machine. A local redaction proxy + hooks for Claude Code: paste keys freely, the model only ever sees placeholders, and commands still work.",
   "license": "MIT",
   "bin": {

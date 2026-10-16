@@ -54,9 +54,10 @@ function exportEnv() {
 // PreToolUse: for file-writing tools only, {{KF_X}} -> real value in the content.
 async function preToolUse(input) {
   if (!EXPAND_TOOLS.has(input.tool_name) || !input.tool_input) return;
-  const { value, changed } = expandDeep(input.tool_input);
+  const { value, changed, expanded } = expandDeep(input.tool_input);
   if (!changed) return;
-  emit({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: value } });
+  emit({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: value,
+    additionalContext: `keyfence: ${expanded} placeholder(s) in this ${input.tool_name} were expanded to real values on disk. The file contains the real secret(s); do not read it back.` } });
 }
 
 // PostToolUse: real values -> placeholders in what the model sees.

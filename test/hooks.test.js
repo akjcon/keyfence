@@ -3,26 +3,40 @@ require('./_helpers').isolate('hooks');
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
+const fs = require('fs');
 const { spawnSync } = require('child_process');
 const { SECRETS } = require('./_helpers');
 const vault = require('../src/vault');
 
 const BIN = path.join(__dirname, '..', 'bin', 'keyfence.js');
 
-function hook(event, input) {
+function hook(event, input, extraEnv = {}) {
   const r = spawnSync(process.execPath, [BIN, 'hook', event], {
-    input: JSON.stringify(input), encoding: 'utf8', env: process.env, timeout: 10000,
+    input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, ...extraEnv }, timeout: 10000,
   });
   assert.strictEqual(r.status, 0, r.stderr);
   return r.stdout ? JSON.parse(r.stdout) : null;
 }
 
-test('pretool expands placeholders in Bash commands', () => {
+test('pretool never rewrites Bash commands (secrets reach shells as env vars)', () => {
   const ph = vault.register('GITHUB_TOKEN', SECRETS.github);
-  const out = hook('pretool', { tool_name: 'Bash', tool_input: { command: `echo ${ph}` } });
-  assert.deepStrictEqual(out, {
-    hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { command: `echo ${SECRETS.github}` } },
-  });
+  assert.strictEqual(hook('pretool', { tool_name: 'Bash', tool_input: { command: `echo ${ph} $${ph.slice(2, -2)}` } }), null);
+});
+
+test('sessionstart exports vault secrets into CLAUDE_ENV_FILE and watches the vault', () => {
+  const ph = vault.register('GITHUB_TOKEN', SECRETS.github);
+  const envFile = path.join(process.env.KEYFENCE_HOME, 'env.sh');
+  fs.writeFileSync(envFile, '');
+  const cfgPath = path.join(process.env.KEYFENCE_HOME, 'config.json');
+  // Point the daemon at a port nothing listens on and give it a short wait so the test stays fast.
+  fs.writeFileSync(cfgPath, JSON.stringify({ port: 1, upstream: 'http://127.0.0.1:9' }));
+  const out = hook('sessionstart', {}, { CLAUDE_ENV_FILE: envFile });
+  const env = fs.readFileSync(envFile, 'utf8');
+  assert.match(env, new RegExp(`^export ${ph.slice(2, -2)}='${SECRETS.github}'$`, 'm'));
+  assert.deepStrictEqual(out.hookSpecificOutput.watchPaths, [path.join(process.env.KEYFENCE_HOME, 'vault.json')]);
+  const r = spawnSync(process.execPath, [BIN, 'hook', 'filechanged'], { input: '{}', encoding: 'utf8', env: { ...process.env, CLAUDE_ENV_FILE: envFile } });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual((fs.readFileSync(envFile, 'utf8').match(/^export KF_/gm) || []).length, 2);
 });
 
 test('pretool expands $KF_ syntax inside Write content', () => {

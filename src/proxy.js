@@ -14,11 +14,13 @@ const vault = require('./vault');
 
 const SYSTEM_NOTICE =
   'KEYFENCE: This session runs behind a local secret-redaction proxy. Credentials appear to you only as ' +
-  'placeholders like {{KF_STRIPE_SECRET_KEY_1a2b3c4d}}. Use a placeholder verbatim wherever the real value ' +
-  'belongs (shell commands, file contents, headers, env files); it is substituted with the real secret on the ' +
-  "user's machine at execution time, and command output is redacted the same way. In shell commands " +
-  '$KF_NAME_hash also works. Never ask the user to paste a secret in another form, never try to reconstruct, ' +
-  'decode or guess a placeholder, and treat placeholders in output as expected rather than as errors.';
+  'placeholders like {{KF_STRIPE_SECRET_KEY_1a2b3c4d}}. Every placeholder is also exported into the Bash ' +
+  'tool environment as a variable of the same name, so in shell commands reference it as "$KF_STRIPE_SECRET_KEY_1a2b3c4d" ' +
+  'exactly like any other env var (e.g. -H "Authorization: Bearer $KF_X", or printf "KEY=%s\\n" "$KF_X" >> .env). ' +
+  'Never write the {{...}} form inside a shell command; it is not expanded there. In file contents written with the ' +
+  'Write or Edit tools the {{...}} form is expanded to the real value on save. Command output is redacted the same ' +
+  'way on the way back. Never ask the user to paste a secret in another form, never try to print, reconstruct, decode ' +
+  'or guess a value, and treat placeholders in output as expected rather than as errors.';
 
 const stats = { started: new Date().toISOString(), requests: 0, redactions: 0, fresh: 0, errors: 0 };
 

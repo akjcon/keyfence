@@ -1,6 +1,6 @@
 # keyfence
 
-If you paste an API key into Claude Code, or a command prints one, that key goes into the transcript and gets sent to the model provider. keyfence stops it from leaving your machine. A small local proxy sits between Claude Code and the API and swaps every secret it finds for a placeholder like `{{KF_STRIPE_SECRET_KEY_1a2b3c4d}}`. When Claude runs a command or writes a file that uses a placeholder, Claude Code hooks put the real value back just before it runs. The model only ever sees placeholders and your commands still work, so you don't have to change how you use Claude Code.
+If you paste an API key into Claude Code, or a command prints one, that key goes into the transcript and gets sent to the model provider. keyfence stops it from leaving your machine. A small local proxy sits between Claude Code and the API and swaps every secret it finds for a placeholder like `{{KF_STRIPE_SECRET_KEY_1a2b3c4d}}`. The same secret is exported into the Bash tool's environment as `$KF_STRIPE_SECRET_KEY_1a2b3c4d`, so the model writes ordinary env-var references in commands and they just work. The command text never contains the secret, before or after, which also keeps Claude Code's own command-safety checks happy. The model only ever sees placeholders and you don't have to change how you use Claude Code.
 
 ## Install
 
@@ -41,13 +41,15 @@ Responses come back unchanged. gzip, deflate and brotli request bodies are suppo
 
 Placeholders are deterministic: each one is an HMAC of the value with a salt unique to your install. The same secret always gets the same placeholder, so prompt caching keeps working.
 
-Four hooks are added to `settings.json`:
+Six hooks are added to `settings.json`:
 
 | Hook               | What it does |
 |--------------------|--------------|
-| `SessionStart`     | Starts the proxy if it isn't running and tells the model about placeholders. |
+| `SessionStart`     | Starts the proxy if it isn't running, exports every vault secret as a `KF_...` env var for Bash commands (via `CLAUDE_ENV_FILE`), registers the vault as a watched file, and tells the model how to use placeholders. |
 | `UserPromptSubmit` | Makes sure the proxy is up before the request goes out. Saves any secrets in your prompt to the vault and tells the model which placeholders it will see. |
-| `PreToolUse`       | For `Bash`, `Write`, `Edit`, `MultiEdit` and `NotebookEdit`, replaces `{{KF_...}}`, `${KF_...}` and `$KF_...` with the real values so the command or file write uses the actual secret. |
+| `PreToolUse`       | For `Write`, `Edit`, `MultiEdit` and `NotebookEdit` only, replaces `{{KF_...}}` in file contents with the real value on save. Bash commands are never rewritten; they use `$KF_...` env vars. |
+| `FileChanged`      | When the vault gains a secret mid-session, re-exports the env vars so the next Bash command can use it. |
+| `CwdChanged`       | Claude Code clears persisted env on `cd`; this puts the `KF_...` vars back. |
 | `PostToolUse`      | Replaces secrets in tool output (`cat .env`, `printenv`, ...) with placeholders before the model sees it, and saves new ones. |
 
 ## What it catches

@@ -95,8 +95,11 @@ function install({ port, upstream } = {}) {
   };
   add('SessionStart', undefined, 'sessionstart', 10);
   add('UserPromptSubmit', undefined, 'prompt', 10);
-  add('PreToolUse', 'Bash|Write|Edit|MultiEdit|NotebookEdit', 'pretool', 10);
+  add('PreToolUse', 'Write|Edit|MultiEdit|NotebookEdit', 'pretool', 10);
   add('PostToolUse', '', 'posttool', 10);
+  // Re-export vault secrets into the Bash env when the vault changes or cwd changes.
+  add('FileChanged', paths.vault, 'filechanged', 10);
+  add('CwdChanged', undefined, 'cwdchanged', 10);
   settings.hooks = hooks;
   writeSettings(settings);
   return { entry, cfg };

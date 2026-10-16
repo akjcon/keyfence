@@ -26,7 +26,7 @@ function seed(settings) {
 
 const USER_HOOK = { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo user-hook' }] };
 
-test('install wires base URL and four hook groups, preserving user settings', async () => {
+test('install wires base URL and six hook groups, preserving user settings', async () => {
   const port = await freePort();
   seed({ model: 'opus', env: { FOO: 'bar' }, hooks: { PreToolUse: [USER_HOOK] } });
   const { entry } = install({ port });
@@ -36,8 +36,8 @@ test('install wires base URL and four hook groups, preserving user settings', as
   assert.strictEqual(s.env.ANTHROPIC_BASE_URL, `http://127.0.0.1:${port}`);
   assert.strictEqual(s.env.FOO, 'bar');
   assert.strictEqual(s.model, 'opus');
-  assert.strictEqual(ours(s).length, 4);
-  assert.deepStrictEqual(Object.keys(s.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit']);
+  assert.strictEqual(ours(s).length, 6);
+  assert.deepStrictEqual(Object.keys(s.hooks).sort(), ['CwdChanged', 'FileChanged', 'PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit']);
   assert.ok(s.hooks.PreToolUse.some((g) => g.hooks[0].command === 'echo user-hook'));
   assert.ok(fs.existsSync(paths.claudeSettings + '.keyfence-backup'));
   assert.strictEqual(isInstalled(), true);
@@ -49,7 +49,7 @@ test('install is idempotent', async () => {
   const n = groupCount(readSettings());
   install({ port });
   assert.strictEqual(groupCount(readSettings()), n);
-  assert.strictEqual(ours(readSettings()).length, 4);
+  assert.strictEqual(ours(readSettings()).length, 6);
 });
 
 test('existing non-local ANTHROPIC_BASE_URL becomes the upstream and is restored on uninstall', async () => {

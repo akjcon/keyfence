@@ -1,0 +1,39 @@
+{
+  "name": "keyfence",
+  "version": "0.1.0",
+  "description": "Secrets never leave your machine. A local redaction proxy + hooks for Claude Code: paste keys freely, the model only ever sees placeholders, and commands still work.",
+  "license": "MIT",
+  "bin": {
+    "keyfence": "bin/keyfence.js"
+  },
+  "main": "src/index.js",
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "keywords": [
+    "claude-code",
+    "secrets",
+    "redaction",
+    "proxy",
+    "credentials",
+    "dlp",
+    "hooks"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/akjcon/keyfence"
+  },
+  "homepage": "https://github.com/akjcon/keyfence#readme",
+  "bugs": {
+    "url": "https://github.com/akjcon/keyfence/issues"
+  }
+}

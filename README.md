@@ -157,3 +157,15 @@ Tests use temporary `KEYFENCE_HOME` and `CLAUDE_CONFIG_DIR` directories and neve
 ## License
 
 MIT
+
+## Releasing
+
+Unit tests run on every push to `main` (Linux, macOS, Windows; Node 18, 20, 22). A release is a tag:
+
+```sh
+keyfence verify                      # live end-to-end check, needs a logged-in Claude Code
+npm version patch                    # bumps package.json and creates the vX.Y.Z tag
+git push && git push --tags          # CI tests, then publishes to npm via trusted publishing
+```
+
+The publish job uses npm trusted publishing (OIDC), so no npm token lives in the repo.

@@ -39,12 +39,55 @@ function read() {
   return { version: 1, secrets: {} };
 }
 
+function uniqueTmp(target) { return `${target}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`; }
+
+// Cross-process lock: the proxy and a hook can register the same secret within the
+// same millisecond. Spin briefly on an exclusive lock file; break stale locks.
+function withLock(fn) {
+  ensureHome();
+  const lock = paths.vault + '.lock';
+  const deadline = Date.now() + 2000;
+  for (;;) {
+    try {
+      const fd = fs.openSync(lock, 'wx');
+      try { return fn(); }
+      finally { fs.closeSync(fd); try { fs.unlinkSync(lock); } catch (_) { /* ignore */ } }
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > 5000) fs.unlinkSync(lock); } catch (_) { /* ignore */ }
+      if (Date.now() > deadline) return fn(); // never block a hook indefinitely
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+    }
+  }
+}
+
 function write(v) {
   ensureHome();
   v.rev = (v.rev || 0) + 1; // monotonic revision so caches don't depend on mtime granularity
-  const tmp = paths.vault + '.tmp';
+  const tmp = uniqueTmp(paths.vault);
   fs.writeFileSync(tmp, JSON.stringify(v, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, paths.vault);
+  writeEnvSh(v);
+}
+
+// A shell snippet exporting every secret as KF_NAME_hash. Regenerated on every vault
+// write so a shell that sources it always sees the current set. Owner-only perms.
+function shellQuote(s) { return `'${String(s).replace(/'/g, `'\\''`)}'`; }
+function writeEnvSh(v = read()) {
+  const lines = Object.entries(v.secrets || {})
+    .filter(([, s]) => s && typeof s.value === 'string' && s.value.length)
+    .map(([ph, s]) => `export ${ph.slice(2, -2)}=${shellQuote(s.value)}`);
+  const dbg = (m) => { if (process.env.KEYFENCE_DEBUG) { try { fs.appendFileSync(process.env.KEYFENCE_DEBUG, `${new Date().toISOString()} writeEnvSh pid=${process.pid} argv=${process.argv.slice(2).join(' ')} ${m}\n`); } catch (_) { /* ignore */ } } };
+  try {
+    const tmp = uniqueTmp(paths.envsh);
+    fs.writeFileSync(tmp, (lines.length ? lines.join('\n') + '\n' : ''), { mode: 0o600 });
+    fs.renameSync(tmp, paths.envsh);
+    dbg(`lines=${lines.length} -> ${paths.envsh}`);
+  } catch (e) {
+    dbg(`ERROR ${e.message}`);
+    throw e;
+  }
+  return lines.length;
 }
 
 function mtime() {
@@ -62,12 +105,14 @@ function version() {
 // Register a secret. Returns its placeholder. Idempotent.
 function register(kind, value) {
   const ph = placeholderFor(kind, value);
-  const v = read();
-  if (!v.secrets[ph]) {
-    v.secrets[ph] = { value, kind: sanitizeKind(kind), created: new Date().toISOString() };
-    write(v);
-  }
-  return ph;
+  return withLock(() => {
+    const v = read();
+    if (!v.secrets[ph]) {
+      v.secrets[ph] = { value, kind: sanitizeKind(kind), created: new Date().toISOString() };
+      write(v);
+    }
+    return ph;
+  });
 }
 
 // Array of { placeholder, value, kind }, longest values first (so longer secrets
@@ -87,10 +132,12 @@ function lookup(placeholder) {
 }
 
 function remove(placeholder) {
-  const v = read();
-  const existed = !!v.secrets[placeholder];
-  if (existed) { delete v.secrets[placeholder]; write(v); }
-  return existed;
+  return withLock(() => {
+    const v = read();
+    const existed = !!v.secrets[placeholder];
+    if (existed) { delete v.secrets[placeholder]; write(v); }
+    return existed;
+  });
 }
 
-module.exports = { register, entries, lookup, remove, placeholderFor, read, mtime, version, PLACEHOLDER_RE, sanitizeKind };
+module.exports = { register, entries, lookup, remove, placeholderFor, read, mtime, version, writeEnvSh, PLACEHOLDER_RE, sanitizeKind };

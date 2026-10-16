@@ -4,8 +4,11 @@
 //
 // Design: secrets reach shell commands as real environment variables (KF_NAME_hash),
 // never as text spliced into the command string. Claude Code's CLAUDE_ENV_FILE
-// persists exports into later Bash tool calls; SessionStart writes it and registers
-// the vault as a watch path so FileChanged re-exports when a new secret is captured.
+// persists shell lines into later Bash tool calls. We write two things into it:
+//   1. a line that sources ~/.keyfence/env.sh, which the vault regenerates on every
+//      write, so secrets captured mid-session are visible to the next command;
+//   2. direct `export` lines for everything currently in the vault, as a fallback.
+// SessionStart also registers the vault as a watch path so FileChanged re-exports.
 const fs = require('fs');
 const { redactDeep, expandDeep } = require('./redact');
 const vault = require('./vault');
@@ -29,16 +32,23 @@ function readStdin() {
 
 function emit(obj) { process.stdout.write(JSON.stringify(obj)); }
 
+function debug(line) {
+  if (!process.env.KEYFENCE_DEBUG) return;
+  try { fs.appendFileSync(process.env.KEYFENCE_DEBUG, `${new Date().toISOString()} ${line}\n`); } catch (_) { /* ignore */ }
+}
+
 function shellQuote(s) { return `'${String(s).replace(/'/g, `'\\''`)}'`; }
 
-// Append `export KF_X=...` for every vault entry to CLAUDE_ENV_FILE. Returns count.
+// Write the source line plus direct exports into CLAUDE_ENV_FILE. Returns export count.
 function exportEnv() {
   const file = process.env.CLAUDE_ENV_FILE;
-  if (!file) return 0;
-  const lines = vault.entries().map((e) => `export ${e.placeholder.slice(2, -2)}=${shellQuote(e.value)}`);
-  if (!lines.length) return 0;
+  const n = vault.writeEnvSh();
+  if (!file) { debug('no CLAUDE_ENV_FILE'); return 0; }
+  const lines = [`[ -r ${shellQuote(paths.envsh)} ] && . ${shellQuote(paths.envsh)}`];
+  for (const e of vault.entries()) lines.push(`export ${e.placeholder.slice(2, -2)}=${shellQuote(e.value)}`);
   fs.appendFileSync(file, lines.join('\n') + '\n');
-  return lines.length;
+  debug(`wrote source line + ${n} export(s) to ${file}`);
+  return n;
 }
 
 // PreToolUse: for file-writing tools only, {{KF_X}} -> real value in the content.
@@ -64,12 +74,15 @@ async function postToolUse(input) {
   emit(out);
 }
 
-// UserPromptSubmit: ensure the proxy is up; pre-register secrets in the prompt so the
-// vault watcher exports them before the model's first command.
+// UserPromptSubmit: ensure the proxy is up; pre-register secrets in the prompt so
+// env.sh already contains them before the model's first command.
 async function userPromptSubmit(input) {
+  debug('prompt: ensuring daemon');
   const ensure = await daemon.ensureRunning();
+  debug(`prompt: daemon running=${ensure.running} started=${ensure.started}`);
   const { found } = redactDeep(input.prompt || '', { register: true });
   const phs = [...new Set(found.map((f) => f.placeholder))];
+  debug(`prompt: found=${found.length} fresh=${found.filter((f) => f.fresh).length} promptlen=${(input.prompt || '').length}`);
   const notes = [];
   if (!ensure.running) notes.push('WARNING: keyfence proxy failed to start; API requests may fail. Run `keyfence doctor`.');
   if (phs.length) {
@@ -103,8 +116,9 @@ async function run(event) {
   if (!handler) { process.stderr.write(`keyfence: unknown hook event ${event}\n`); return; }
   let input = {};
   try { input = JSON.parse((await readStdin()) || '{}'); } catch (_) { /* ignore */ }
-  try { await handler(input); }
-  catch (e) { process.stderr.write(`keyfence hook ${event}: ${e.message}\n`); }
+  debug(`hook=${event} home=${paths.home} claudecode=${process.env.CLAUDECODE || '-'} env_file=${process.env.CLAUDE_ENV_FILE || '-'} input_keys=${Object.keys(input).join(',')}`);
+  try { await handler(input); debug(`hook=${event} done`); }
+  catch (e) { debug(`hook=${event} ERROR ${e.stack}`); process.stderr.write(`keyfence hook ${event}: ${e.message}\n`); }
 }
 
 module.exports = { run, HANDLERS, EXPAND_TOOLS, exportEnv };

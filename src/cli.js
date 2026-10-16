@@ -12,6 +12,7 @@ const HELP = `keyfence — secrets never leave your machine (for Claude Code)
   keyfence uninstall                             remove hooks + base URL, stop proxy (vault is kept)
   keyfence status                                proxy health, counts, config
   keyfence doctor                                diagnose a broken setup
+  keyfence verify [--model M] [--permission-mode auto]   live end-to-end test (fake key, real API, real classifier)
   keyfence list                                  placeholders in the vault (never values)
   keyfence forget <placeholder>                  remove one secret from the vault
   keyfence test [text]                           show how text would be redacted (dry run)
@@ -39,7 +40,7 @@ async function main(args) {
 
     case 'install': {
       const { install } = require('./install');
-      const { cfg, entry } = install({ port: arg(args, '--port'), upstream: arg(args, '--upstream') });
+      const { cfg, entry, zdot, bashShim } = install({ port: arg(args, '--port'), upstream: arg(args, '--upstream') });
       await daemon.stop();
       const r = await daemon.ensureRunning();
       out('keyfence installed.');
@@ -47,6 +48,7 @@ async function main(args) {
       out(`  hooks      ${entry}`);
       out(`  settings   ${paths.claudeSettings}  (backup: settings.json.keyfence-backup)`);
       out(`  vault      ${paths.vault}`);
+      out(`  shell      ZDOTDIR=${zdot} (zsh), BASH_ENV=${bashShim} (bash); set only for Claude Code, no dotfiles edited`);
       out('\nRestart any open Claude Code sessions. Paste keys freely; the model only ever sees placeholders.');
       return;
     }
@@ -70,6 +72,25 @@ async function main(args) {
       out(`proxy: ${s ? `running (pid ${s.pid}) on 127.0.0.1:${cfg.port} -> ${s.upstream}` : `NOT running (expected on 127.0.0.1:${cfg.port})`}`);
       if (s) out(`requests: ${s.requests}   redactions: ${s.redactions}   new secrets this run: ${s.fresh}   errors: ${s.errors}`);
       out(`vault: ${vault.entries().length} secret(s) at ${paths.vault}`);
+      return;
+    }
+
+    case 'verify': {
+      const { verify } = require('./verify');
+      const model = arg(args, '--model') || 'haiku';
+      const permissionMode = arg(args, '--permission-mode') || 'auto';
+      out('keyfence verify: end-to-end test with a fake key, a throwaway vault, the real API and the real classifier.');
+      const r = await verify({ model, permissionMode, log: out });
+      out('');
+      for (const c of r.checks) out(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
+      out('');
+      out(r.ok ? 'All checks passed.' : 'Some checks FAILED. Run with --show-transcript to see what the model did.');
+      if (args.includes('--show-transcript')) {
+        out('\n--- bash commands:'); r.transcript.bash.forEach((c) => out('  ' + c));
+        out('--- tool results:'); r.transcript.results.forEach((c) => out('  ' + c.replace(/\n/g, ' ').slice(0, 300)));
+        out('--- model text:'); r.transcript.text.forEach((c) => out('  ' + c.replace(/\n/g, ' ').slice(0, 500)));
+      }
+      if (!r.ok) process.exitCode = 1;
       return;
     }
 

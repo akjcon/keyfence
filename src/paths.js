@@ -14,6 +14,7 @@ const paths = {
   config: path.join(KF_DIR, 'config.json'),
   pid: path.join(KF_DIR, 'proxy.pid'),
   token: path.join(KF_DIR, 'proxy.token'),
+  envsh: path.join(KF_DIR, 'env.sh'),
   log: path.join(KF_DIR, 'proxy.log'),
   app: path.join(KF_DIR, 'app'),
   claudeDir: CLAUDE_DIR,

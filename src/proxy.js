@@ -14,13 +14,15 @@ const vault = require('./vault');
 
 const SYSTEM_NOTICE =
   'KEYFENCE: This session runs behind a local secret-redaction proxy. Credentials appear to you only as ' +
-  'placeholders like {{KF_STRIPE_SECRET_KEY_1a2b3c4d}}. Every placeholder is also exported into the Bash ' +
-  'tool environment as a variable of the same name, so in shell commands reference it as "$KF_STRIPE_SECRET_KEY_1a2b3c4d" ' +
-  'exactly like any other env var (e.g. -H "Authorization: Bearer $KF_X", or printf "KEY=%s\\n" "$KF_X" >> .env). ' +
-  'Never write the {{...}} form inside a shell command; it is not expanded there. In file contents written with the ' +
-  'Write or Edit tools the {{...}} form is expanded to the real value on save. Command output is redacted the same ' +
-  'way on the way back. Never ask the user to paste a secret in another form, never try to print, reconstruct, decode ' +
-  'or guess a value, and treat placeholders in output as expected rather than as errors.';
+  'placeholders like {{KF_STRIPE_SECRET_KEY_1a2b3c4d}}; the real values never reach you. Rules: ' +
+  '(1) In shell commands, use the matching environment variable, e.g. -H "Authorization: Bearer $KF_STRIPE_SECRET_KEY_1a2b3c4d" ' +
+  'or -u "$KF_X:". Every placeholder is exported into the Bash environment under its own name. Never put the {{...}} form in a shell command. ' +
+  '(2) To put a secret in a file (.env, config, JSON), use the Write or Edit tool with the {{...}} form in the content; it is expanded ' +
+  'to the real value on save. Do not write secrets to files through shell redirection; the harness blocks that. ' +
+  '(3) Never print, echo, cat, length-check, hash or encode a secret to inspect it; the harness blocks that too, and it is unnecessary. ' +
+  'To confirm a secret works, call the service that uses it and check the HTTP status. ' +
+  '(4) Tool output is redacted on the way back, so placeholders in output are expected, not errors. ' +
+  'Never ask the user to paste a secret in another form, and never try to reconstruct, decode or guess a value.';
 
 const stats = { started: new Date().toISOString(), requests: 0, redactions: 0, fresh: 0, errors: 0 };
 

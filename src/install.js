@@ -7,6 +7,7 @@ const path = require('path');
 const { paths, ensureHome } = require('./paths');
 const config = require('./config');
 const daemon = require('./daemon');
+const vault = require('./vault');
 
 const MARKER = 'keyfence.js hook';
 
@@ -86,23 +87,46 @@ function install({ port, upstream } = {}) {
   config.save(cfg);
 
   settings.env = { ...(settings.env || {}), ANTHROPIC_BASE_URL: `http://127.0.0.1:${cfg.port}` };
+  // Shell wiring so KF_* vars exist in every Claude Code shell (zsh + bash), done purely
+  // through env vars scoped to the Claude Code process. No dotfiles are edited.
+  const shellenv = require('./shellenv');
+  const prev = (key, ours) => {
+    const cur = settings.env[key];
+    const isOurs = cur && path.resolve(cur) === path.resolve(ours);
+    const restoreKey = `restore_${key}`;
+    if (!isOurs) cfg[restoreKey] = cur || null; // first install: remember the user's value
+    return cfg[restoreKey] || undefined;
+  };
+  const prevBashEnv = prev('BASH_ENV', shellenv.bashShimPath());
+  const prevZdot = prev('ZDOTDIR', shellenv.zdotPath());
+  settings.env.BASH_ENV = shellenv.writeBashShim(prevBashEnv);
+  settings.env.ZDOTDIR = shellenv.writeZdot(prevZdot);
+  config.save(cfg);
+  vault.writeEnvSh();
   const hooks = stripOurHooks(settings.hooks);
+  for (const [event, groups] of Object.entries(hookGroups(entry))) hooks[event] = [...(hooks[event] || []), ...groups];
+  settings.hooks = hooks;
+  writeSettings(settings);
+  return { entry, cfg, zdot: settings.env.ZDOTDIR, bashShim: settings.env.BASH_ENV };
+}
+
+// The hook groups keyfence needs, keyed by event. Shared by install and verify.
+function hookGroups(entry, vaultPath = paths.vault) {
+  const out = {};
   const add = (event, matcher, name, timeout) => {
     const h = { type: 'command', command: hookCmd(entry, name) };
     if (timeout) h.timeout = timeout;
     const group = matcher === undefined ? { hooks: [h] } : { matcher, hooks: [h] };
-    hooks[event] = [...(hooks[event] || []), group];
+    out[event] = [...(out[event] || []), group];
   };
   add('SessionStart', undefined, 'sessionstart', 10);
   add('UserPromptSubmit', undefined, 'prompt', 10);
   add('PreToolUse', 'Write|Edit|MultiEdit|NotebookEdit', 'pretool', 10);
   add('PostToolUse', '', 'posttool', 10);
   // Re-export vault secrets into the Bash env when the vault changes or cwd changes.
-  add('FileChanged', paths.vault, 'filechanged', 10);
+  add('FileChanged', vaultPath, 'filechanged', 10);
   add('CwdChanged', undefined, 'cwdchanged', 10);
-  settings.hooks = hooks;
-  writeSettings(settings);
-  return { entry, cfg };
+  return out;
 }
 
 function uninstall() {
@@ -111,8 +135,16 @@ function uninstall() {
   if (settings.env && /^http:\/\/127\.0\.0\.1:\d+$/.test(settings.env.ANTHROPIC_BASE_URL || '')) {
     if (cfg.restoreBaseUrl) settings.env.ANTHROPIC_BASE_URL = cfg.restoreBaseUrl;
     else delete settings.env.ANTHROPIC_BASE_URL;
-    if (!Object.keys(settings.env).length) delete settings.env;
   }
+  const shellenv = require('./shellenv');
+  for (const [key, ours] of [['BASH_ENV', shellenv.bashShimPath()], ['ZDOTDIR', shellenv.zdotPath()]]) {
+    if (settings.env && settings.env[key] && path.resolve(settings.env[key]) === path.resolve(ours)) {
+      if (cfg[`restore_${key}`]) settings.env[key] = cfg[`restore_${key}`];
+      else delete settings.env[key];
+    }
+    delete cfg[`restore_${key}`];
+  }
+  if (settings.env && !Object.keys(settings.env).length) delete settings.env;
   settings.hooks = stripOurHooks(settings.hooks);
   if (!Object.keys(settings.hooks).length) delete settings.hooks;
   writeSettings(settings);
@@ -127,4 +159,4 @@ function isInstalled() {
     Object.values(s.hooks || {}).some((gs) => Array.isArray(gs) && gs.some(isOurs));
 }
 
-module.exports = { install, uninstall, isInstalled, readSettings, MARKER };
+module.exports = { install, uninstall, isInstalled, readSettings, hookGroups, MARKER };
